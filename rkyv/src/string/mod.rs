@@ -6,7 +6,10 @@ use crate::{Fallible, SerializeUnsized};
 use core::{
     borrow::Borrow,
     cmp, fmt, hash,
-    ops::{Deref, Index, Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive},
+    ops::{
+        Deref, Index, Range, RangeFrom, RangeFull, RangeInclusive, RangeTo,
+        RangeToInclusive,
+    },
     pin::Pin,
     str,
 };
@@ -49,7 +52,12 @@ impl ArchivedString {
         if value.len() <= repr::INLINE_CAPACITY {
             ArchivedStringRepr::emplace_inline(value, out.cast());
         } else {
-            ArchivedStringRepr::emplace_out_of_line(value, pos, resolver.pos, out.cast());
+            ArchivedStringRepr::emplace_out_of_line(
+                value,
+                pos,
+                resolver.pos,
+                out.cast(),
+            );
         }
     }
 
@@ -180,6 +188,41 @@ impl PartialEq<ArchivedString> for &str {
     }
 }
 
+impl PartialEq<ArchivedString> for str {
+    #[inline]
+    fn eq(&self, other: &ArchivedString) -> bool {
+        PartialEq::eq(other.as_str(), self)
+    }
+}
+
+impl PartialOrd<&str> for ArchivedString {
+    #[inline]
+    fn partial_cmp(&self, other: &&str) -> Option<cmp::Ordering> {
+        self.as_str().partial_cmp(*other)
+    }
+}
+
+impl PartialOrd<str> for ArchivedString {
+    #[inline]
+    fn partial_cmp(&self, other: &str) -> Option<cmp::Ordering> {
+        self.as_str().partial_cmp(other)
+    }
+}
+
+impl PartialOrd<ArchivedString> for &str {
+    #[inline]
+    fn partial_cmp(&self, other: &ArchivedString) -> Option<cmp::Ordering> {
+        self.partial_cmp(&other.as_str())
+    }
+}
+
+impl PartialOrd<ArchivedString> for str {
+    #[inline]
+    fn partial_cmp(&self, other: &ArchivedString) -> Option<cmp::Ordering> {
+        self.partial_cmp(other.as_str())
+    }
+}
+
 /// The resolver for `String`.
 pub struct StringResolver {
     pos: usize,
@@ -187,10 +230,7 @@ pub struct StringResolver {
 
 #[cfg(feature = "validation")]
 const _: () = {
-    use crate::validation::{
-        owned::OwnedPointerError,
-        ArchiveContext,
-    };
+    use crate::validation::{owned::OwnedPointerError, ArchiveContext};
     use bytecheck::{CheckBytes, Error};
 
     impl<C: ArchiveContext + ?Sized> CheckBytes<C> for ArchivedString
@@ -227,7 +267,8 @@ const _: () = {
                 let range = context
                     .push_prefix_subtree(ptr)
                     .map_err(OwnedPointerError::ContextError)?;
-                str::check_bytes(ptr, context).map_err(OwnedPointerError::ValueCheckBytesError)?;
+                str::check_bytes(ptr, context)
+                    .map_err(OwnedPointerError::ValueCheckBytesError)?;
                 context
                     .pop_prefix_range(range)
                     .map_err(OwnedPointerError::ContextError)?;

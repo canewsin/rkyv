@@ -30,7 +30,9 @@ unsafe impl Sync for SharedDeserializeMapError {}
 impl fmt::Display for SharedDeserializeMapError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::DuplicateSharedPointer(p) => write!(f, "duplicate shared pointer: {:p}", p),
+            Self::DuplicateSharedPointer(p) => {
+                write!(f, "duplicate shared pointer: {:p}", p)
+            }
         }
     }
 }
@@ -53,6 +55,14 @@ impl SharedDeserializeMap {
     pub fn new() -> Self {
         Self {
             shared_pointers: hash_map::HashMap::new(),
+        }
+    }
+
+    /// Wraps the given deserializer and adds shared memory support, with initial capacity.
+    #[inline]
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            shared_pointers: hash_map::HashMap::with_capacity(capacity),
         }
     }
 }

@@ -205,10 +205,17 @@ pub struct BufferScratch<T> {
     ptr: Option<NonNull<[u8]>>,
 }
 
+unsafe impl<T> Send for BufferScratch<T> where T: Send {}
+unsafe impl<T> Sync for BufferScratch<T> where T: Sync {}
+
 impl<T> BufferScratch<T> {
     /// Creates a new buffer scratch allocator.
     pub fn new(buffer: T) -> Self {
-        Self { buffer, pos: 0, ptr: None }
+        Self {
+            buffer,
+            pos: 0,
+            ptr: None,
+        }
     }
 
     /// Resets the scratch space to its initial state.
@@ -232,9 +239,14 @@ impl<T> Fallible for BufferScratch<T> {
     type Error = FixedSizeScratchError;
 }
 
-impl<T: DerefMut<Target = U>, U: AsMut<[u8]>> ScratchSpace for BufferScratch<T> {
+impl<T: DerefMut<Target = U>, U: AsMut<[u8]>> ScratchSpace
+    for BufferScratch<T>
+{
     #[inline]
-    unsafe fn push_scratch(&mut self, layout: Layout) -> Result<NonNull<[u8]>, Self::Error> {
+    unsafe fn push_scratch(
+        &mut self,
+        layout: Layout,
+    ) -> Result<NonNull<[u8]>, Self::Error> {
         if self.ptr.is_none() {
             self.ptr = Some(NonNull::from(self.buffer.as_mut()));
         }
@@ -260,11 +272,17 @@ impl<T: DerefMut<Target = U>, U: AsMut<[u8]>> ScratchSpace for BufferScratch<T> 
     }
 
     #[inline]
-    unsafe fn pop_scratch(&mut self, ptr: NonNull<u8>, layout: Layout) -> Result<(), Self::Error> {
+    unsafe fn pop_scratch(
+        &mut self,
+        ptr: NonNull<u8>,
+        layout: Layout,
+    ) -> Result<(), Self::Error> {
         let bytes = self.ptr.unwrap().as_ptr();
 
         let ptr = ptr.as_ptr();
-        if ptr >= bytes.cast::<u8>() && ptr < bytes.cast::<u8>().add(ptr_meta::metadata(bytes)) {
+        if ptr >= bytes.cast::<u8>()
+            && ptr < bytes.cast::<u8>().add(ptr_meta::metadata(bytes))
+        {
             let next_pos = ptr.offset_from(bytes.cast::<u8>()) as usize;
             if next_pos + layout.size() <= self.pos {
                 self.pos = next_pos;
@@ -311,14 +329,21 @@ impl<M, F: Fallible> Fallible for FallbackScratch<M, F> {
 
 impl<M: ScratchSpace, F: ScratchSpace> ScratchSpace for FallbackScratch<M, F> {
     #[inline]
-    unsafe fn push_scratch(&mut self, layout: Layout) -> Result<NonNull<[u8]>, Self::Error> {
+    unsafe fn push_scratch(
+        &mut self,
+        layout: Layout,
+    ) -> Result<NonNull<[u8]>, Self::Error> {
         self.main
             .push_scratch(layout)
             .or_else(|_| self.fallback.push_scratch(layout))
     }
 
     #[inline]
-    unsafe fn pop_scratch(&mut self, ptr: NonNull<u8>, layout: Layout) -> Result<(), Self::Error> {
+    unsafe fn pop_scratch(
+        &mut self,
+        ptr: NonNull<u8>,
+        layout: Layout,
+    ) -> Result<(), Self::Error> {
         self.main
             .pop_scratch(ptr, layout)
             .or_else(|_| self.fallback.pop_scratch(ptr, layout))
@@ -385,20 +410,29 @@ impl<T: Fallible> Fallible for ScratchTracker<T> {
 
 impl<T: ScratchSpace> ScratchSpace for ScratchTracker<T> {
     #[inline]
-    unsafe fn push_scratch(&mut self, layout: Layout) -> Result<NonNull<[u8]>, Self::Error> {
+    unsafe fn push_scratch(
+        &mut self,
+        layout: Layout,
+    ) -> Result<NonNull<[u8]>, Self::Error> {
         let result = self.inner.push_scratch(layout)?;
 
         self.bytes_allocated += layout.size();
         self.allocations += 1;
-        self.max_bytes_allocated = usize::max(self.bytes_allocated, self.max_bytes_allocated);
-        self.max_allocations = usize::max(self.allocations, self.max_allocations);
+        self.max_bytes_allocated =
+            usize::max(self.bytes_allocated, self.max_bytes_allocated);
+        self.max_allocations =
+            usize::max(self.allocations, self.max_allocations);
         self.max_alignment = usize::max(self.max_alignment, layout.align());
 
         Ok(result)
     }
 
     #[inline]
-    unsafe fn pop_scratch(&mut self, ptr: NonNull<u8>, layout: Layout) -> Result<(), Self::Error> {
+    unsafe fn pop_scratch(
+        &mut self,
+        ptr: NonNull<u8>,
+        layout: Layout,
+    ) -> Result<(), Self::Error> {
         self.inner.pop_scratch(ptr, layout)?;
 
         self.bytes_allocated -= layout.size();

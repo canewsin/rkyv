@@ -1,25 +1,24 @@
 [package]
 name = "rkyv"
-version = "0.7.39"
-authors = ["David Koloski <djkoloski@gmail.com>"]
-edition = "2018"
 description = "Zero-copy deserialization framework for Rust"
-license = "MIT"
-documentation = "https://docs.rs/rkyv"
-repository = "https://github.com/rkyv/rkyv"
 keywords = ["archive", "rkyv", "serialization", "zero-copy", "no_std"]
 categories = ["encoding", "no-std"]
 readme = "crates-io.md"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bytecheck = { version = "~0.6.8", optional = true, default-features = false }
-hashbrown = { version = "0.12", optional = true }
-ptr_meta = { version = "~0.1.3", default-features = false }
-rend = { version = "0.4", optional = true, default-features = false }
-rkyv_derive = { version = "=0.7.39", path = "../rkyv_derive" }
-seahash = "4.0"
+bytecheck = { workspace = true, optional = true }
+hashbrown = { workspace = true, optional = true }
+ptr_meta.workspace = true
+rend.workspace = true
+rkyv_derive.workspace = true
+seahash.workspace = true
 
 # Support for various common crates. These are primarily to get users off the ground and build some
 # momentum.
@@ -31,27 +30,29 @@ seahash = "4.0"
 bitvec = { version = "1.0", optional = true, default-features = false }
 indexmap = { version = "1.7", optional = true, default-features = false }
 smallvec = { version = "1.7", optional = true, default-features = false }
+smol_str = { version = "0.2", optional = true, default-features = false }
+arrayvec = { version = "0.7", optional = true, default-features = false }
 tinyvec = { version = "1.5", optional = true, default-features = false }
-uuid = { version = "1.0", optional = true, default-features = false }
+uuid = { version = "1.3", optional = true, default-features = false }
+bytes = { version = "1.4.0", optional = true, default-features = false }
 
 [features]
-default = ["size_32", "std"]
-alloc = ["hashbrown"]
-arbitrary_enum_discriminant = ["rkyv_derive/arbitrary_enum_discriminant"]
-archive_be = ["rend", "rkyv_derive/archive_be"]
-archive_le = ["rend", "rkyv_derive/archive_le"]
+default = ["little_endian", "pointer_width_32", "std", "strict", "validation"]
+little_endian = ["rkyv_derive/little_endian"]
+big_endian = ["rkyv_derive/big_endian"]
+pointer_width_16 = []
+pointer_width_32 = []
+pointer_width_64 = []
+alloc = ["hashbrown", "bitvec?/alloc", "tinyvec?/alloc"]
+std = ["alloc", "bytecheck?/std", "ptr_meta/std", "uuid?/std", "bytes?/std"]
+strict = ["rkyv_derive/strict"]
 copy = ["rkyv_derive/copy"]
 copy_unsafe = []
-size_16 = []
-size_32 = []
-size_64 = []
-std = ["alloc", "bytecheck/std", "ptr_meta/std", "rend/std"]
-strict = ["rkyv_derive/strict"]
 validation = ["alloc", "bytecheck", "rend/validation"]
+extra_traits = []
 
-bitvec_alloc = ["bitvec/alloc"]
-tinyvec_alloc = ["tinyvec/alloc"]
-uuid_std = ["uuid/std"]
+# Crate support
+uuid = ["dep:uuid", "bytecheck?/uuid"]
 
 [package.metadata.docs.rs]
 features = ["validation"]

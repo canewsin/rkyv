@@ -13,9 +13,9 @@ use core::{
     ptr,
 };
 use rkyv::{
-    from_archived,
+    primitive::ArchivedU64,
     validation::{ArchiveContext, SharedContext},
-    Archived, Fallible,
+    Fallible,
 };
 use rkyv_typename::TypeName;
 use std::{collections::HashMap, error::Error};
@@ -28,14 +28,14 @@ pub trait DynContext {
     ///
     /// # Safety
     ///
-    /// - `base` must be inside the archive this valiator was created for.
+    /// - `base` must be inside the archive this validator was created for.
     ///
     /// [`bounds_check_ptr`]: rkyv::validation::ArchiveContext::bounds_check_ptr
     unsafe fn bounds_check_ptr_dyn(
         &mut self,
         base: *const u8,
         offset: isize,
-    ) -> Result<*const u8, Box<dyn Error>>;
+    ) -> Result<*const u8, Box<dyn Error + Send + Sync>>;
 
     /// Checks that a given pointer can be dereferenced.
     ///
@@ -51,7 +51,7 @@ pub trait DynContext {
         &mut self,
         data_address: *const u8,
         layout: &Layout,
-    ) -> Result<(), Box<dyn Error>>;
+    ) -> Result<(), Box<dyn Error + Send + Sync>>;
 
     /// Checks that the given data address and layout is located completely within the subtree
     /// range.
@@ -67,7 +67,7 @@ pub trait DynContext {
         &mut self,
         data_address: *const u8,
         layout: &Layout,
-    ) -> Result<(), Box<dyn Error>>;
+    ) -> Result<(), Box<dyn Error + Send + Sync>>;
 
     /// Pushes a new subtree range onto the validator and starts validating it.
     ///
@@ -82,14 +82,17 @@ pub trait DynContext {
         &mut self,
         root: *const u8,
         end: *const u8,
-    ) -> Result<Box<dyn Any>, Box<dyn Error>>;
+    ) -> Result<Box<dyn Any>, Box<dyn Error + Send + Sync>>;
 
     /// Pops the given range, restoring the original state with the pushed range removed.
     ///
     /// See [`pop_prefix_range`] for more information.
     ///
     /// [`pop_prefix_range`]: rkyv::validation::ArchiveContext::pop_prefix_range
-    fn pop_prefix_range_dyn(&mut self, range: Box<dyn Any>) -> Result<(), Box<dyn Error>>;
+    fn pop_prefix_range_dyn(
+        &mut self,
+        range: Box<dyn Any>,
+    ) -> Result<(), Box<dyn Error + Send + Sync>>;
 
     /// Pushes a new subtree range onto the validator and starts validating it.
     ///
@@ -104,21 +107,24 @@ pub trait DynContext {
         &mut self,
         start: *const u8,
         root: *const u8,
-    ) -> Result<Box<dyn Any>, Box<dyn Error>>;
+    ) -> Result<Box<dyn Any>, Box<dyn Error + Send + Sync>>;
 
     /// Finishes the given range, restoring the original state with the pushed range removed.
     ///
     /// See [`pop_suffix_range`] for more information.
     ///
     /// [`pop_suffix_range`]: rkyv::validation::ArchiveContext::pop_suffix_range
-    fn pop_suffix_range_dyn(&mut self, range: Box<dyn Any>) -> Result<(), Box<dyn Error>>;
+    fn pop_suffix_range_dyn(
+        &mut self,
+        range: Box<dyn Any>,
+    ) -> Result<(), Box<dyn Error + Send + Sync>>;
 
     /// Verifies that all outstanding claims have been returned.
     ///
     /// See [`finish`] for more information.
     ///
     /// [`finish`]: rkyv::validation::ArchiveContext::finish
-    fn finish_dyn(&mut self) -> Result<(), Box<dyn Error>>;
+    fn finish_dyn(&mut self) -> Result<(), Box<dyn Error + Send + Sync>>;
 
     /// Registers the given `ptr` as a shared pointer with the given type.
     ///
@@ -129,87 +135,119 @@ pub trait DynContext {
         &mut self,
         ptr: *const u8,
         type_id: TypeId,
-    ) -> Result<bool, Box<dyn Error>>;
+    ) -> Result<bool, Box<dyn Error + Send + Sync>>;
 }
 
 impl<C> DynContext for C
 where
     C: ArchiveContext + SharedContext + ?Sized,
-    C::Error: Error,
+    C::Error: Error + Send + Sync,
 {
     unsafe fn bounds_check_ptr_dyn(
         &mut self,
         base: *const u8,
         offset: isize,
-    ) -> Result<*const u8, Box<dyn Error>> {
+    ) -> Result<*const u8, Box<dyn Error + Send + Sync>> {
         self.bounds_check_ptr(base, offset)
-            .map_err(|e| Box::new(e) as Box<dyn Error>)
+            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
     }
 
     unsafe fn bounds_check_layout_dyn(
         &mut self,
         ptr: *const u8,
         layout: &Layout,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         self.bounds_check_layout(ptr, layout)
-            .map_err(|e| Box::new(e) as Box<dyn Error>)
+            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
     }
 
     unsafe fn bounds_check_subtree_ptr_layout_dyn(
         &mut self,
         data_address: *const u8,
         layout: &Layout,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         self.bounds_check_subtree_ptr_layout(data_address, layout)
-            .map_err(|e| Box::new(e) as Box<dyn Error>)
+            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
     }
 
     unsafe fn push_prefix_subtree_range_dyn(
         &mut self,
         root: *const u8,
         end: *const u8,
-    ) -> Result<Box<dyn Any>, Box<dyn Error>> {
+    ) -> Result<Box<dyn Any>, Box<dyn Error + Send + Sync>> {
         self.push_prefix_subtree_range(root, end)
             .map(|r| Box::new(r) as Box<dyn Any>)
-            .map_err(|e| Box::new(e) as Box<dyn Error>)
+            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
     }
 
-    fn pop_prefix_range_dyn(&mut self, range: Box<dyn Any>) -> Result<(), Box<dyn Error>> {
+    fn pop_prefix_range_dyn(
+        &mut self,
+        range: Box<dyn Any>,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         self.pop_prefix_range(*range.downcast().unwrap())
-            .map_err(|e| Box::new(e) as Box<dyn Error>)
+            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
     }
 
     unsafe fn push_suffix_subtree_range_dyn(
         &mut self,
         start: *const u8,
         root: *const u8,
-    ) -> Result<Box<dyn Any>, Box<dyn Error>> {
+    ) -> Result<Box<dyn Any>, Box<dyn Error + Send + Sync>> {
         self.push_suffix_subtree_range(start, root)
             .map(|r| Box::new(r) as Box<dyn Any>)
-            .map_err(|e| Box::new(e) as Box<dyn Error>)
+            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
     }
 
-    fn pop_suffix_range_dyn(&mut self, range: Box<dyn Any>) -> Result<(), Box<dyn Error>> {
+    fn pop_suffix_range_dyn(
+        &mut self,
+        range: Box<dyn Any>,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         self.pop_suffix_range(*range.downcast().unwrap())
-            .map_err(|e| Box::new(e) as Box<dyn Error>)
+            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
     }
 
-    fn finish_dyn(&mut self) -> Result<(), Box<dyn Error>> {
-        self.finish().map_err(|e| Box::new(e) as Box<dyn Error>)
+    fn finish_dyn(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        self.finish()
+            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
     }
 
     fn register_shared_ptr_dyn(
         &mut self,
         ptr: *const u8,
         type_id: TypeId,
-    ) -> Result<bool, Box<dyn Error>> {
+    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
         self.register_shared_ptr(ptr, type_id)
-            .map_err(|e| Box::new(e) as Box<dyn Error>)
+            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
     }
 }
 
+/// The error type for `DynContext`.
+pub struct DynError {
+    inner: Box<dyn Error + Send + Sync>,
+}
+
+impl From<Box<dyn Error + Send + Sync>> for DynError {
+    fn from(inner: Box<dyn Error + Send + Sync>) -> Self {
+        Self { inner }
+    }
+}
+
+impl fmt::Display for DynError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.inner.fmt(f)
+    }
+}
+
+impl fmt::Debug for DynError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.inner.fmt(f)
+    }
+}
+
+impl Error for DynError {}
+
 impl Fallible for (dyn DynContext + '_) {
-    type Error = Box<dyn Error>;
+    type Error = DynError;
 }
 
 impl ArchiveContext for (dyn DynContext + '_) {
@@ -221,7 +259,7 @@ impl ArchiveContext for (dyn DynContext + '_) {
         base: *const u8,
         offset: isize,
     ) -> Result<*const u8, Self::Error> {
-        self.bounds_check_ptr_dyn(base, offset)
+        Ok(self.bounds_check_ptr_dyn(base, offset)?)
     }
 
     unsafe fn bounds_check_layout(
@@ -229,7 +267,7 @@ impl ArchiveContext for (dyn DynContext + '_) {
         data_address: *const u8,
         layout: &Layout,
     ) -> Result<(), Self::Error> {
-        self.bounds_check_layout_dyn(data_address, layout)
+        Ok(self.bounds_check_layout_dyn(data_address, layout)?)
     }
 
     unsafe fn bounds_check_subtree_ptr_layout(
@@ -237,7 +275,7 @@ impl ArchiveContext for (dyn DynContext + '_) {
         data_address: *const u8,
         layout: &Layout,
     ) -> Result<(), Self::Error> {
-        self.bounds_check_subtree_ptr_layout_dyn(data_address, layout)
+        Ok(self.bounds_check_subtree_ptr_layout_dyn(data_address, layout)?)
     }
 
     unsafe fn push_prefix_subtree_range(
@@ -245,11 +283,14 @@ impl ArchiveContext for (dyn DynContext + '_) {
         root: *const u8,
         end: *const u8,
     ) -> Result<Self::PrefixRange, Self::Error> {
-        self.push_prefix_subtree_range_dyn(root, end)
+        Ok(self.push_prefix_subtree_range_dyn(root, end)?)
     }
 
-    fn pop_prefix_range(&mut self, range: Self::PrefixRange) -> Result<(), Self::Error> {
-        self.pop_prefix_range_dyn(range)
+    fn pop_prefix_range(
+        &mut self,
+        range: Self::PrefixRange,
+    ) -> Result<(), Self::Error> {
+        Ok(self.pop_prefix_range_dyn(range)?)
     }
 
     unsafe fn push_suffix_subtree_range(
@@ -257,15 +298,25 @@ impl ArchiveContext for (dyn DynContext + '_) {
         start: *const u8,
         root: *const u8,
     ) -> Result<Self::SuffixRange, Self::Error> {
-        self.push_suffix_subtree_range_dyn(start, root)
+        Ok(self.push_suffix_subtree_range_dyn(start, root)?)
     }
 
-    fn pop_suffix_range(&mut self, range: Self::SuffixRange) -> Result<(), Self::Error> {
-        self.pop_suffix_range_dyn(range)
+    fn pop_suffix_range(
+        &mut self,
+        range: Self::SuffixRange,
+    ) -> Result<(), Self::Error> {
+        Ok(self.pop_suffix_range_dyn(range)?)
     }
 
+    fn wrap_layout_error(
+        layout_error: core::alloc::LayoutError,
+    ) -> Self::Error {
+        DynError {
+            inner: Box::new(layout_error) as Box<dyn Error + Send + Sync>,
+        }
+    }
     fn finish(&mut self) -> Result<(), Self::Error> {
-        self.finish_dyn()
+        Ok(self.finish_dyn()?)
     }
 }
 
@@ -274,8 +325,8 @@ impl SharedContext for (dyn DynContext + '_) {
         &mut self,
         ptr: *const u8,
         type_id: TypeId,
-    ) -> Result<bool, Box<dyn Error>> {
-        self.register_shared_ptr_dyn(ptr, type_id)
+    ) -> Result<bool, DynError> {
+        Ok(self.register_shared_ptr_dyn(ptr, type_id)?)
     }
 }
 
@@ -291,14 +342,17 @@ impl fmt::Display for CheckBytesUnimplemented {
 
 impl Error for CheckBytesUnimplemented {}
 
-type CheckBytesDyn = unsafe fn(*const u8, &mut dyn DynContext) -> Result<(), Box<dyn Error>>;
+type CheckBytesDyn = unsafe fn(
+    *const u8,
+    &mut dyn DynContext,
+) -> Result<(), Box<dyn Error + Send + Sync>>;
 
 // This is the fallback function that gets called if the archived type doesn't implement CheckBytes.
 #[inline]
 unsafe fn check_bytes_dyn_unimplemented(
     _bytes: *const u8,
     _context: &mut dyn DynContext,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), Box<dyn Error + Send + Sync>> {
     Err(Box::new(CheckBytesUnimplemented).into())
 }
 
@@ -320,7 +374,7 @@ impl<T: for<'a> CheckBytes<dyn DynContext + 'a>> IsCheckBytesDyn<T> {
     unsafe fn check_bytes_dyn(
         bytes: *const u8,
         context: &mut dyn DynContext,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         T::check_bytes(bytes.cast(), context)?;
         Ok(())
     }
@@ -337,7 +391,9 @@ pub struct ImplValidation {
 #[macro_export]
 macro_rules! validation {
     ($type:ty as $trait:ty) => {
-        use rkyv_dyn::validation::{ImplValidation, IsCheckBytesDyn, NotCheckBytesDyn};
+        use rkyv_dyn::validation::{
+            ImplValidation, IsCheckBytesDyn, NotCheckBytesDyn,
+        };
     };
 }
 
@@ -393,20 +449,25 @@ impl<T: TypeName + ?Sized, C: ?Sized> CheckBytes<C> for ArchivedDynMetadata<T> {
         value: *const Self,
         context: &mut C,
     ) -> Result<&'a Self, Self::Error> {
-        let type_id = from_archived!(*Archived::<u64>::check_bytes(
-            ptr::addr_of!((*value).type_id),
+        let type_id =
+            ArchivedU64::check_bytes(ptr::addr_of!((*value).type_id), context)?
+                .to_native();
+        PhantomData::<T>::check_bytes(
+            ptr::addr_of!((*value).phantom),
             context,
-        )?);
-        PhantomData::<T>::check_bytes(ptr::addr_of!((*value).phantom), context)?;
+        )?;
         if let Some(impl_data) = IMPL_REGISTRY.get::<T>(type_id) {
             let cached_vtable_ptr = ptr::addr_of!((*value).cached_vtable);
             #[cfg(feature = "vtable_cache")]
             let cached_vtable =
-                CheckBytes::check_bytes(cached_vtable_ptr, context)?.load(Ordering::Relaxed);
+                CheckBytes::check_bytes(cached_vtable_ptr, context)?
+                    .load(Ordering::Relaxed);
             #[cfg(not(feature = "vtable_cache"))]
             let cached_vtable =
-                from_archived!(*Archived::<u64>::check_bytes(cached_vtable_ptr, context)?);
-            if cached_vtable == 0 || cached_vtable as usize == impl_data.vtable {
+                ArchivedU64::check_bytes(cached_vtable_ptr, context)?
+                    .to_native();
+            if cached_vtable == 0 || cached_vtable as usize == impl_data.vtable
+            {
                 Ok(&*value)
             } else {
                 Err(DynMetadataError::MismatchedCachedVtable {
@@ -427,13 +488,15 @@ pub enum CheckDynError {
     /// The pointer metadata did not match any registered impl
     InvalidMetadata(u64),
     /// An error occurred while checking the bytes of the trait object
-    CheckBytes(Box<dyn Error>),
+    CheckBytes(Box<dyn Error + Send + Sync>),
 }
 
 impl fmt::Display for CheckDynError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            CheckDynError::InvalidMetadata(n) => write!(f, "invalid metadata: {}", n),
+            CheckDynError::InvalidMetadata(n) => {
+                write!(f, "invalid metadata: {}", n)
+            }
             CheckDynError::CheckBytes(e) => write!(f, "check bytes: {}", e),
         }
     }
@@ -448,8 +511,8 @@ impl Error for CheckDynError {
     }
 }
 
-impl From<Box<dyn Error>> for CheckDynError {
-    fn from(e: Box<dyn Error>) -> Self {
+impl From<Box<dyn Error + Send + Sync>> for CheckDynError {
+    fn from(e: Box<dyn Error + Send + Sync>) -> Self {
         Self::CheckBytes(e)
     }
 }
@@ -462,7 +525,9 @@ pub struct CheckBytesEntry {
 
 impl CheckBytesEntry {
     #[doc(hidden)]
-    pub fn new<TY: RegisteredImpl<TR>, TR: ?Sized>(check_bytes_dyn: CheckBytesDyn) -> Self {
+    pub fn new<TY: RegisteredImpl<TR>, TR: ?Sized>(
+        check_bytes_dyn: CheckBytesDyn,
+    ) -> Self {
         Self {
             vtable: <TY as RegisteredImpl<TR>>::vtable(),
             validation: ImplValidation {

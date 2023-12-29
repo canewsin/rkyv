@@ -1,8 +1,8 @@
 //! An archived version of `Box`.
 
 use crate::{
-    ser::Serializer, ArchivePointee, ArchiveUnsized, Fallible, MetadataResolver, RelPtr, Serialize,
-    SerializeUnsized,
+    ser::Serializer, ArchivePointee, ArchiveUnsized, Fallible,
+    MetadataResolver, RelPtr, Serialize, SerializeUnsized,
 };
 use core::{borrow::Borrow, cmp, fmt, hash, ops::Deref, pin::Pin};
 
@@ -39,7 +39,12 @@ impl<T: ArchivePointee + ?Sized> ArchivedBox<T> {
         out: *mut Self,
     ) {
         let (fp, fo) = out_field!(out.0);
-        value.resolve_unsized(pos + fp, resolver.pos, resolver.metadata_resolver, fo);
+        value.resolve_unsized(
+            pos + fp,
+            resolver.pos,
+            resolver.metadata_resolver,
+            fo,
+        );
     }
 
     /// Serializes an archived box from the given value and serializer.
@@ -56,6 +61,30 @@ impl<T: ArchivePointee + ?Sized> ArchivedBox<T> {
             pos: value.serialize_unsized(serializer)?,
             metadata_resolver: value.serialize_metadata(serializer)?,
         })
+    }
+
+    /// Resolves an archived box from a [`BoxResolver`] which contains
+    /// the raw [`<T as ArchivePointee>::ArchivedMetadata`] directly.
+    ///
+    /// # Safety
+    ///
+    /// - `pos` must be the position of `out` within the archive
+    /// - `resolver` must be obtained by following the safety documentation of
+    /// [`BoxResolver::from_raw_parts`].
+    ///
+    /// [`<T as ArchivePointee>::ArchivedMetadata`]: ArchivePointee::ArchivedMetadata
+    pub unsafe fn resolve_from_raw_parts(
+        pos: usize,
+        resolver: BoxResolver<<T as ArchivePointee>::ArchivedMetadata>,
+        out: *mut Self,
+    ) {
+        let (fp, fo) = out_field!(out.0);
+        RelPtr::resolve_emplace_from_raw_parts(
+            pos + fp,
+            resolver.pos,
+            resolver.metadata_resolver,
+            fo,
+        );
     }
 
     #[doc(hidden)]
@@ -83,11 +112,14 @@ impl<T> ArchivedBox<[T]> {
         U: Serialize<S, Archived = T>,
         S: Serializer + ?Sized,
     {
-        use ::core::{mem::size_of, slice::from_raw_parts};
+        use core::{mem::size_of, slice::from_raw_parts};
 
         let pos = serializer.align_for::<T>()?;
 
-        let bytes = from_raw_parts(slice.as_ptr().cast::<u8>(), size_of::<T>() * slice.len());
+        let bytes = from_raw_parts(
+            slice.as_ptr().cast::<u8>(),
+            size_of::<T>() * slice.len(),
+        );
         serializer.write(bytes)?;
 
         Ok(BoxResolver {
@@ -142,7 +174,9 @@ impl<T: ArchivePointee + ?Sized> Deref for ArchivedBox<T> {
     }
 }
 
-impl<T: ArchivePointee + fmt::Display + ?Sized> fmt::Display for ArchivedBox<T> {
+impl<T: ArchivePointee + fmt::Display + ?Sized> fmt::Display
+    for ArchivedBox<T>
+{
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.get().fmt(f)
@@ -190,9 +224,44 @@ impl<T: ArchivePointee + ?Sized> fmt::Pointer for ArchivedBox<T> {
 }
 
 /// The resolver for `Box`.
-pub struct BoxResolver<T> {
+pub struct BoxResolver<M> {
     pos: usize,
-    metadata_resolver: T,
+    metadata_resolver: M,
+}
+
+impl<M> BoxResolver<M> {
+    /// Create a a new [`BoxResolver<M>`] from raw parts. Note that `M` here is ***not*** the same
+    /// `T` which should be serialized/contained in the resulting [`ArchivedBox<T>`], and is rather
+    /// a type that can be used to resolve any needed [`ArchivePointee::ArchivedMetadata`]
+    /// for the serialized pointed-to value.
+    ///
+    /// In most cases, you won't need to create a [`BoxResolver`] yourself and can instead obtain it through
+    /// [`ArchivedBox::serialize_from_ref`] or [`ArchivedBox::serialize_copy_from_slice`].
+    ///
+    /// # Safety
+    ///
+    /// Technically no unsafety can happen directly from calling this function, however, passing this as a resolver to
+    /// [`ArchivedBox`]'s resolving functions absolutely can. In general this should be treated as a semi-private type, as
+    /// constructing a valid resolver is quite fraught. Please make sure you understand what the implications are before doing it.
+    ///
+    /// - `pos`: You must ensure that you serialized and resolved (i.e. [`Serializer::serialize_value`])
+    /// a `T` which will be pointed to by the final [`ArchivedBox<T>`] that this resolver will help resolve
+    /// at the given `pos` within the archive.
+    ///
+    /// - `metadata_resolver`: You must also ensure that the given `metadata_resolver` can be used to successfully produce
+    /// valid [`<T as ArchivePointee>::ArchivedMetadata`] for that serialized `T`. This means it must either be:
+    ///     - The necessary [`<T as ArchivePointee>::ArchivedMetadata`] itself, in which case you may use the created
+    /// `BoxResolver<<T as ArchivePointee>::ArchivedMetadata>` as a resolver in [`ArchivedBox::resolve_from_raw_parts`]
+    ///     - An [`ArchiveUnsized::MetadataResolver`] obtained from some `value: &U` where `U: ArchiveUnsized<Archived = T>`, in which case you
+    /// must pass that same `value: &U` into [`ArchivedBox::resolve_from_ref`] along with this [`BoxResolver`].
+    ///
+    /// [`<T as ArchivePointee>::ArchivedMetadata`]: ArchivePointee::ArchivedMetadata
+    pub unsafe fn from_raw_parts(pos: usize, metadata_resolver: M) -> Self {
+        Self {
+            pos,
+            metadata_resolver,
+        }
+    }
 }
 
 #[cfg(feature = "validation")]
@@ -218,8 +287,9 @@ const _: () = {
             value: *const Self,
             context: &mut C,
         ) -> Result<&'a Self, Self::Error> {
-            let rel_ptr = RelPtr::<T>::manual_check_bytes(value.cast(), context)
-                .map_err(OwnedPointerError::PointerCheckBytesError)?;
+            let rel_ptr =
+                RelPtr::<T>::manual_check_bytes(value.cast(), context)
+                    .map_err(OwnedPointerError::PointerCheckBytesError)?;
             let ptr = context
                 .check_subtree_rel_ptr(rel_ptr)
                 .map_err(OwnedPointerError::ContextError)?;
@@ -227,7 +297,8 @@ const _: () = {
             let range = context
                 .push_prefix_subtree(ptr)
                 .map_err(OwnedPointerError::ContextError)?;
-            T::check_bytes(ptr, context).map_err(OwnedPointerError::ValueCheckBytesError)?;
+            T::check_bytes(ptr, context)
+                .map_err(OwnedPointerError::ValueCheckBytesError)?;
             context
                 .pop_prefix_range(range)
                 .map_err(OwnedPointerError::ContextError)?;

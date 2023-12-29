@@ -3,50 +3,59 @@
 pub mod owned;
 pub mod validators;
 
-use crate::{Archive, ArchivePointee, Fallible, RelPtr};
-use bytecheck::CheckBytes;
-use core::{alloc::Layout, any::TypeId, fmt};
+use crate::{Archive, ArchivePointee, CheckBytes, Fallible, RelPtr};
+use core::{alloc::Layout, alloc::LayoutError, any::TypeId, fmt};
 use ptr_meta::Pointee;
 #[cfg(feature = "std")]
 use std::error::Error;
 
 // Replace this trait with core::mem::{align_of_val_raw, size_of_val_raw} when they get stabilized.
 
-/// Gets the layout of a type from its pointer.
-pub trait LayoutRaw {
+/// Gets the layout of a type from its pointee type and metadata.
+pub trait LayoutRaw
+where
+    Self: Pointee,
+{
     /// Gets the layout of the type.
-    fn layout_raw(value: *const Self) -> Layout;
+    fn layout_raw(
+        metadata: <Self as Pointee>::Metadata,
+    ) -> Result<Layout, LayoutError>;
 }
 
 impl<T> LayoutRaw for T {
     #[inline]
-    fn layout_raw(_: *const Self) -> Layout {
-        Layout::new::<T>()
+    fn layout_raw(
+        _: <Self as Pointee>::Metadata,
+    ) -> Result<Layout, LayoutError> {
+        Ok(Layout::new::<T>())
     }
 }
 
 impl<T> LayoutRaw for [T] {
     #[inline]
-    fn layout_raw(value: *const Self) -> Layout {
-        let metadata = ptr_meta::metadata(value);
-        Layout::array::<T>(metadata).unwrap()
+    fn layout_raw(
+        metadata: <Self as Pointee>::Metadata,
+    ) -> Result<Layout, LayoutError> {
+        Layout::array::<T>(metadata)
     }
 }
 
 impl LayoutRaw for str {
     #[inline]
-    fn layout_raw(value: *const Self) -> Layout {
-        let metadata = ptr_meta::metadata(value);
-        Layout::array::<u8>(metadata).unwrap()
+    fn layout_raw(
+        metadata: <Self as Pointee>::Metadata,
+    ) -> Result<Layout, LayoutError> {
+        Layout::array::<u8>(metadata)
     }
 }
 
 #[cfg(feature = "std")]
 impl LayoutRaw for ::std::ffi::CStr {
     #[inline]
-    fn layout_raw(value: *const Self) -> Layout {
-        let metadata = ptr_meta::metadata(value);
-        Layout::array::<::std::os::raw::c_char>(metadata).unwrap()
+    fn layout_raw(
+        metadata: <Self as Pointee>::Metadata,
+    ) -> Result<Layout, LayoutError> {
+        Layout::array::<::std::os::raw::c_char>(metadata)
     }
 }
 
@@ -70,7 +79,7 @@ pub trait ArchiveContext: Fallible {
     ///
     /// # Safety
     ///
-    /// - `base` must be inside the archive this valiator was created for.
+    /// - `base` must be inside the archive this validator was created for.
     unsafe fn bounds_check_ptr(
         &mut self,
         base: *const u8,
@@ -113,8 +122,9 @@ pub trait ArchiveContext: Fallible {
         metadata: T::Metadata,
     ) -> Result<*const T, Self::Error> {
         let data_address = self.bounds_check_ptr(base, offset)?;
+        let layout =
+            T::layout_raw(metadata).map_err(Self::wrap_layout_error)?;
         let ptr = ptr_meta::from_raw_parts(data_address.cast(), metadata);
-        let layout = T::layout_raw(ptr);
         self.bounds_check_layout(data_address, &layout)?;
         Ok(ptr)
     }
@@ -160,7 +170,8 @@ pub trait ArchiveContext: Fallible {
         &mut self,
         ptr: *const T,
     ) -> Result<(), Self::Error> {
-        let layout = T::layout_raw(ptr);
+        let layout = T::layout_raw(ptr_meta::metadata(ptr))
+            .map_err(Self::wrap_layout_error)?;
         self.bounds_check_subtree_ptr_layout(ptr.cast(), &layout)
     }
 
@@ -224,14 +235,21 @@ pub trait ArchiveContext: Fallible {
         &mut self,
         root: *const T,
     ) -> Result<Self::PrefixRange, Self::Error> {
-        let layout = T::layout_raw(root);
-        self.push_prefix_subtree_range(root as *const u8, (root as *const u8).add(layout.size()))
+        let layout = T::layout_raw(ptr_meta::metadata(root))
+            .map_err(Self::wrap_layout_error)?;
+        self.push_prefix_subtree_range(
+            root as *const u8,
+            (root as *const u8).add(layout.size()),
+        )
     }
 
     /// Pops the given range, restoring the original state with the pushed range removed.
     ///
     /// If the range was not popped in reverse order, an error is returned.
-    fn pop_prefix_range(&mut self, range: Self::PrefixRange) -> Result<(), Self::Error>;
+    fn pop_prefix_range(
+        &mut self,
+        range: Self::PrefixRange,
+    ) -> Result<(), Self::Error>;
 
     /// Pushes a new subtree range onto the validator and starts validating it.
     ///
@@ -251,7 +269,13 @@ pub trait ArchiveContext: Fallible {
     /// Finishes the given range, restoring the original state with the pushed range removed.
     ///
     /// If the range was not popped in reverse order, an error is returned.
-    fn pop_suffix_range(&mut self, range: Self::SuffixRange) -> Result<(), Self::Error>;
+    fn pop_suffix_range(
+        &mut self,
+        range: Self::SuffixRange,
+    ) -> Result<(), Self::Error>;
+
+    /// Wraps a layout error in an ArchiveContext error
+    fn wrap_layout_error(error: LayoutError) -> Self::Error;
 
     /// Verifies that all outstanding claims have been returned.
     fn finish(&mut self) -> Result<(), Self::Error>;
@@ -264,8 +288,11 @@ pub trait SharedContext: Fallible {
     /// Registers the given `ptr` as a shared pointer with the given type.
     ///
     /// Returns `true` if the pointer was newly-registered and `check_bytes` should be called.
-    fn register_shared_ptr(&mut self, ptr: *const u8, type_id: TypeId)
-        -> Result<bool, Self::Error>;
+    fn register_shared_ptr(
+        &mut self,
+        ptr: *const u8,
+        type_id: TypeId,
+    ) -> Result<bool, Self::Error>;
 }
 
 /// Errors that can occur when checking an archive.
@@ -277,11 +304,17 @@ pub enum CheckArchiveError<T, C> {
     ContextError(C),
 }
 
-impl<T: fmt::Display, C: fmt::Display> fmt::Display for CheckArchiveError<T, C> {
+impl<T: fmt::Display, C: fmt::Display> fmt::Display
+    for CheckArchiveError<T, C>
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            CheckArchiveError::CheckBytesError(e) => write!(f, "check bytes error: {}", e),
-            CheckArchiveError::ContextError(e) => write!(f, "context error: {}", e),
+            CheckArchiveError::CheckBytesError(e) => {
+                write!(f, "check bytes error: {}", e)
+            }
+            CheckArchiveError::ContextError(e) => {
+                write!(f, "context error: {}", e)
+            }
         }
     }
 }
@@ -320,8 +353,8 @@ where
         let range = context
             .push_prefix_subtree(ptr)
             .map_err(CheckArchiveError::ContextError)?;
-        let result =
-            CheckBytes::check_bytes(ptr, context).map_err(CheckArchiveError::CheckBytesError)?;
+        let result = CheckBytes::check_bytes(ptr, context)
+            .map_err(CheckArchiveError::CheckBytesError)?;
         context
             .pop_prefix_range(range)
             .map_err(CheckArchiveError::ContextError)?;
@@ -345,7 +378,11 @@ where
     T::Archived: CheckBytes<C> + Pointee<Metadata = ()>,
     C: ArchiveContext + ?Sized,
 {
-    internal_check_archived_value_with_context::<T, C>(buf, pos as isize, context)
+    internal_check_archived_value_with_context::<T, C>(
+        buf,
+        pos as isize,
+        context,
+    )
 }
 
 /// Checks the given archive with an additional context.

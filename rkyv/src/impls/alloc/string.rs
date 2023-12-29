@@ -1,16 +1,23 @@
 use crate::{
     string::{ArchivedString, StringResolver},
-    Archive, Deserialize, DeserializeUnsized, Fallible, Serialize, SerializeUnsized,
+    Archive, Deserialize, DeserializeUnsized, Fallible, Serialize,
+    SerializeUnsized,
 };
 #[cfg(not(feature = "std"))]
-use ::alloc::string::{String, ToString};
+use alloc::string::{String, ToString};
+use core::cmp::Ordering;
 
 impl Archive for String {
     type Archived = ArchivedString;
     type Resolver = StringResolver;
 
     #[inline]
-    unsafe fn resolve(&self, pos: usize, resolver: Self::Resolver, out: *mut Self::Archived) {
+    unsafe fn resolve(
+        &self,
+        pos: usize,
+        resolver: Self::Resolver,
+        out: *mut Self::Archived,
+    ) {
         ArchivedString::resolve_from_str(self.as_str(), pos, resolver, out);
     }
 }
@@ -20,7 +27,10 @@ where
     str: SerializeUnsized<S>,
 {
     #[inline]
-    fn serialize(&self, serializer: &mut S) -> Result<Self::Resolver, S::Error> {
+    fn serialize(
+        &self,
+        serializer: &mut S,
+    ) -> Result<Self::Resolver, S::Error> {
         ArchivedString::serialize_from_str(self.as_str(), serializer)
     }
 }
@@ -46,5 +56,19 @@ impl PartialEq<ArchivedString> for String {
     #[inline]
     fn eq(&self, other: &ArchivedString) -> bool {
         PartialEq::eq(other.as_str(), self.as_str())
+    }
+}
+
+impl PartialOrd<ArchivedString> for String {
+    #[inline]
+    fn partial_cmp(&self, other: &ArchivedString) -> Option<Ordering> {
+        self.as_str().partial_cmp(other.as_str())
+    }
+}
+
+impl PartialOrd<String> for ArchivedString {
+    #[inline]
+    fn partial_cmp(&self, other: &String) -> Option<Ordering> {
+        self.as_str().partial_cmp(other.as_str())
     }
 }

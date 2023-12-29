@@ -10,7 +10,10 @@ extern crate proc_macro;
 
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, spanned::Spanned, AttrStyle, DeriveInput, Error, Lit, Meta};
+use syn::{
+    parse_macro_input, AttrStyle, DeriveInput, Error, Expr, ExprLit,
+    GenericParam, Lit, Meta,
+};
 
 #[derive(Default)]
 struct Attributes {
@@ -19,31 +22,39 @@ struct Attributes {
 
 fn parse_attributes(input: &DeriveInput) -> Result<Attributes, TokenStream> {
     let mut result = Attributes::default();
-    for a in input.attrs.iter() {
-        if let AttrStyle::Outer = a.style {
-            if let Ok(Meta::NameValue(meta)) = a.parse_meta() {
-                if meta.path.is_ident("typename") {
-                    if result.typename.is_none() {
-                        if let Lit::Str(ref lit_str) = meta.lit {
-                            result.typename = Some(lit_str.value());
-                        } else {
-                            return Err(Error::new(
-                                meta.lit.span(),
-                                "typename must be set to a string",
-                            )
-                            .to_compile_error());
-                        }
-                    } else {
-                        return Err(Error::new(
-                            meta.span(),
-                            "typename attribute already specified",
-                        )
-                        .to_compile_error());
-                    }
-                }
-            }
+
+    for attr in input.attrs.iter() {
+        let AttrStyle::Outer = attr.style else {
+            continue;
+        };
+
+        let Meta::NameValue(ref meta) = attr.meta else {
+            continue;
+        };
+
+        if !meta.path.is_ident("typename") {
+            continue;
+        }
+
+        if result.typename.is_some() {
+            let msg = "typename attribute already specified";
+
+            return Err(Error::new_spanned(meta, msg).to_compile_error());
+        }
+
+        if let Expr::Lit(ExprLit {
+            lit: Lit::Str(ref lit_str),
+            ..
+        }) = meta.value
+        {
+            result.typename = Some(lit_str.value());
+        } else {
+            let msg = "typename must be set to a string";
+
+            return Err(Error::new_spanned(&meta.value, msg).to_compile_error());
         }
     }
+
     Ok(result)
 }
 
@@ -51,7 +62,9 @@ fn parse_attributes(input: &DeriveInput) -> Result<Attributes, TokenStream> {
 ///
 /// A custom name can be set using the attribute `#[typename = "..."]`.
 #[proc_macro_derive(TypeName, attributes(typename))]
-pub fn type_name_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+pub fn type_name_derive(
+    input: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
     let type_name_impl = derive_type_name_impl(&input);
@@ -65,20 +78,7 @@ fn derive_type_name_impl(input: &DeriveInput) -> TokenStream {
         Err(error) => return error,
     };
 
-    let generic_params = input.generics.params.iter().map(|p| quote! { #p });
-    let generic_args = input.generics.type_params().map(|p| {
-        let name = &p.ident;
-        quote! { #name }
-    });
-    let generic_predicates = match input.generics.where_clause {
-        Some(ref clause) => {
-            let predicates = clause.predicates.iter().map(|p| quote! { #p });
-            quote! { #(#predicates,)* }
-        }
-        None => quote! {},
-    };
-
-    let type_wheres = input.generics.type_params().map(|p| {
+    let typename_where_predicates = input.generics.type_params().map(|p| {
         let name = &p.ident;
         quote! { #name: rkyv_typename::TypeName }
     });
@@ -95,18 +95,35 @@ fn derive_type_name_impl(input: &DeriveInput) -> TokenStream {
         .typename
         .unwrap_or_else(|| input.ident.to_string());
 
-    let build_args = if !input.generics.params.is_empty() {
-        let mut results = input.generics.type_params().map(|p| {
-            let name = &p.ident;
-            quote! { #name::build_type_name(&mut f) }
-        });
-        let first = results.next().unwrap();
+    let mut generics = input.generics.params.iter().filter_map(|p| {
+        match p {
+            GenericParam::Type(t) => {
+                let name = &t.ident;
+                Some(quote! { #name::build_type_name(&mut f) })
+            }
+            GenericParam::Const(c) => {
+                let value = &c.ident;
+                Some(quote! {
+                    // This works for all const generic types that are supported by rust 1.68 or
+                    // below. It happens to be, for these types, that the Debug trait is
+                    // implemented in such a way that it generates the correct output for the
+                    // expected behavior.
+                    // However newer versions of the compiler may break this code in subtle and/or
+                    // less subtle ways.
+                    let const_val = &format!("{:?}", #value);
+                    f(const_val);
+                })
+            }
+            GenericParam::Lifetime(_) => None,
+        }
+    });
+    let build_args = if let Some(first) = generics.next() {
         let name_str = format!("{}<", name_str);
         quote! {
             #module_path
             f(#name_str);
             #first;
-            #(f(", "); #results;)*
+            #(f(", "); #generics;)*
             f(">");
         }
     } else {
@@ -116,16 +133,19 @@ fn derive_type_name_impl(input: &DeriveInput) -> TokenStream {
         }
     };
 
+    let (impl_generics, ty_generics, where_clause) =
+        input.generics.split_for_impl();
+    let standard_derive_where_predicates = where_clause.map(|w| &w.predicates);
     quote! {
         const _: () = {
             use rkyv_typename::TypeName;
 
-            impl<#(#generic_params,)*> TypeName for #name<#(#generic_args,)*>
+            impl #impl_generics TypeName for #name #ty_generics
             where
-                #generic_predicates
-                #(#type_wheres,)*
+                #(#typename_where_predicates,)*
+                #standard_derive_where_predicates
             {
-                fn build_type_name<F: FnMut(&str)>(mut f: F) {
+                fn build_type_name<TYPENAME__F: FnMut(&str)>(mut f: TYPENAME__F) {
                     #build_args
                 }
             }

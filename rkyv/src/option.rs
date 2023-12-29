@@ -23,6 +23,37 @@ pub enum ArchivedOption<T> {
 }
 
 impl<T> ArchivedOption<T> {
+    /// Transforms the `ArchivedOption<T>` into a `Result<T, E>`, mapping `Some(v)` to `Ok(v)` and
+    /// `None` to `Err(err)`.
+    pub fn ok_or<E>(self, err: E) -> Result<T, E> {
+        match self {
+            ArchivedOption::None => Err(err),
+            ArchivedOption::Some(x) => Ok(x),
+        }
+    }
+    /// Returns the contained [`Some`] value, consuming the `self` value.
+    pub fn unwrap(self) -> T {
+        match self {
+            ArchivedOption::None => {
+                panic!("called `ArchivedOption::unwrap()` on a `None` value")
+            }
+            ArchivedOption::Some(value) => value,
+        }
+    }
+    /// Returns the contained [`Some`] value or a provided default.
+    pub fn unwrap_or(self, default: T) -> T {
+        match self {
+            ArchivedOption::None => default,
+            ArchivedOption::Some(value) => value,
+        }
+    }
+    /// Returns the contained [`Some`] value or computes it from a closure.
+    pub fn unwrap_or_else<F: FnOnce() -> T>(self, f: F) -> T {
+        match self {
+            ArchivedOption::None => f(),
+            ArchivedOption::Some(value) => value,
+        }
+    }
     /// Returns `true` if the option is a `None` value.
     #[inline]
     pub fn is_none(&self) -> bool {
@@ -163,6 +194,32 @@ impl<T: PartialOrd> PartialOrd for ArchivedOption<T> {
     }
 }
 
+#[cfg(feature = "extra_traits")]
+impl<T, U: PartialOrd<T>> PartialOrd<Option<T>> for ArchivedOption<U> {
+    #[inline]
+    fn partial_cmp(&self, other: &Option<T>) -> Option<cmp::Ordering> {
+        match (self, other) {
+            (ArchivedOption::None, None) => Some(cmp::Ordering::Equal),
+            (ArchivedOption::None, Some(_)) => Some(cmp::Ordering::Less),
+            (ArchivedOption::Some(_), None) => Some(cmp::Ordering::Greater),
+            (ArchivedOption::Some(self_value), Some(other_value)) => self_value.partial_cmp(other_value),
+        }
+    }
+}
+
+#[cfg(feature = "extra_traits")]
+impl<T: PartialOrd<U>, U> PartialOrd<ArchivedOption<T>> for Option<U> {
+    #[inline]
+    fn partial_cmp(&self, other: &ArchivedOption<T>) -> Option<cmp::Ordering> {
+        match (self, other) {
+            (None, ArchivedOption::None) => Some(cmp::Ordering::Equal),
+            (None, ArchivedOption::Some(_)) => Some(cmp::Ordering::Less),
+            (Some(_), ArchivedOption::None) => Some(cmp::Ordering::Greater),
+            (Some(self_value), ArchivedOption::Some(other_value)) => other_value.partial_cmp(self_value).map(|ord| ord.reverse()),
+        }
+    }
+}
+
 impl<T, U: PartialEq<T>> PartialEq<Option<T>> for ArchivedOption<U> {
     #[inline]
     fn eq(&self, other: &Option<T>) -> bool {
@@ -182,6 +239,22 @@ impl<T: PartialEq<U>, U> PartialEq<ArchivedOption<T>> for Option<U> {
     #[inline]
     fn eq(&self, other: &ArchivedOption<T>) -> bool {
         other.eq(self)
+    }
+}
+
+impl<T> From<T> for ArchivedOption<T> {
+    /// Moves `val` into a new [`Some`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use rkyv::option::ArchivedOption;
+    /// let o: ArchivedOption<u8> = ArchivedOption::from(67);
+    ///
+    /// assert_eq!(Some(67), o);
+    /// ```
+    fn from(val: T) -> ArchivedOption<T> {
+        ArchivedOption::Some(val)
     }
 }
 
@@ -232,5 +305,30 @@ impl<'a, T> Iterator for IterMut<'a, T> {
 impl<'a, T> DoubleEndedIterator for IterMut<'a, T> {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.next()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ArchivedOption;
+    use core::cmp::Ordering;
+
+    #[test]
+    #[cfg(feature = "extra_traits")]
+    fn partial_ord_option() {
+        let a: ArchivedOption<u8> = ArchivedOption::Some(42);
+        let b = Some(42);
+        assert_eq!(Some(Ordering::Equal), a.partial_cmp(&b));
+        assert_eq!(Some(Ordering::Equal), b.partial_cmp(&a));
+
+        let a: ArchivedOption<u8> = ArchivedOption::Some(1);
+        let b = Some(2);
+        assert_eq!(Some(Ordering::Less), a.partial_cmp(&b));
+        assert_eq!(Some(Ordering::Greater), b.partial_cmp(&a));
+
+        let a: ArchivedOption<u8> = ArchivedOption::Some(2);
+        let b = Some(1);
+        assert_eq!(Some(Ordering::Greater), a.partial_cmp(&b));
+        assert_eq!(Some(Ordering::Less), b.partial_cmp(&a));
     }
 }

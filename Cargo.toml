@@ -13,3 +13,23 @@ default-members = [
     "rkyv_test",
     "rkyv_typename",
 ]
+
+[workspace.package]
+version = "0.8.0"
+authors = ["David Koloski <djkoloski@gmail.com>"]
+edition = "2021"
+license = "MIT"
+documentation = "https://docs.rs/rkyv"
+repository = "https://github.com/rkyv/rkyv"
+
+[workspace.dependencies]
+bytecheck = { version = "0.7", default-features = false }
+hashbrown = "0.14"
+proc-macro2 = "1.0"
+ptr_meta = { version = "0.2", default-features = false }
+quote = "1.0"
+rend = { version = "0.5", git = "https://github.com/rkyv/rend", branch = "master", default-features = false }
+rkyv_derive = { version = "=0.8.0", path = "rkyv_derive" }
+seahash = "4.0"
+syn = "2.0"
+wasm-bindgen-test = "0.3"

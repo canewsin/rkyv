@@ -1,12 +1,13 @@
-use core::convert::{TryFrom, TryInto};
-use core::{marker::PhantomData, ops::Deref};
 #[cfg(feature = "bitvec_alloc")]
 use crate::vec::{ArchivedVec, VecResolver};
 use crate::{
-    out_field, bitvec::ArchivedBitVec,
+    bitvec::ArchivedBitVec,
+    out_field,
     ser::{ScratchSpace, Serializer},
     Archive, Archived, Deserialize, Fallible, Serialize,
 };
+use core::convert::{TryFrom, TryInto};
+use core::{marker::PhantomData, ops::Deref};
 
 use bitvec::{prelude::*, view::BitViewSized};
 
@@ -25,9 +26,19 @@ where
     type Archived = ArchivedBitVec<Archived<T>, O>;
     type Resolver = VecResolver;
 
-    unsafe fn resolve(&self, pos: usize, resolver: Self::Resolver, out: *mut Self::Archived) {
+    unsafe fn resolve(
+        &self,
+        pos: usize,
+        resolver: Self::Resolver,
+        out: *mut Self::Archived,
+    ) {
         let (fp, fo) = out_field!(out.inner);
-        ArchivedVec::resolve_from_slice(self.as_raw_slice(), pos + fp, resolver, fo);
+        ArchivedVec::resolve_from_slice(
+            self.as_raw_slice(),
+            pos + fp,
+            resolver,
+            fo,
+        );
         let (fp, fo) = out_field!(out.bit_len);
         usize::resolve(&self.len(), pos + fp, (), fo);
     }
@@ -41,8 +52,12 @@ where
     S: Fallible + ?Sized + ScratchSpace + Serializer,
     Archived<T>: BitStore,
 {
-    fn serialize(&self, serializer: &mut S) -> Result<Self::Resolver, <S as Fallible>::Error> {
-        let resolver = ArchivedVec::serialize_from_slice(self.as_raw_slice(), serializer)?;
+    fn serialize(
+        &self,
+        serializer: &mut S,
+    ) -> Result<Self::Resolver, <S as Fallible>::Error> {
+        let resolver =
+            ArchivedVec::serialize_from_slice(self.as_raw_slice(), serializer)?;
         usize::serialize(&self.len(), serializer)?;
 
         Ok(resolver)
@@ -57,9 +72,13 @@ where
     D: Fallible + ?Sized,
     Archived<T>: Deserialize<T, D> + BitStore,
 {
-    fn deserialize(&self, deserializer: &mut D) -> Result<BitVec<T, O>, <D as Fallible>::Error> {
+    fn deserialize(
+        &self,
+        deserializer: &mut D,
+    ) -> Result<BitVec<T, O>, <D as Fallible>::Error> {
         let vec = ArchivedVec::deserialize(&self.inner, deserializer)?;
-        let bit_len = Archived::<usize>::deserialize(&self.bit_len, deserializer)?;
+        let bit_len =
+            Archived::<usize>::deserialize(&self.bit_len, deserializer)?;
 
         let mut bitvec = BitVec::<T, O>::from_vec(vec);
         bitvec.truncate(bit_len);
@@ -69,7 +88,7 @@ where
 
 #[cfg_attr(feature = "validation", derive(bytecheck::CheckBytes))]
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct ArchivedBitArray<A = [Archived<usize>; 1], O = Lsb0>
+pub struct ArchivedBitArray<A = [ArchivedUsize; 1], O = Lsb0>
 where
     A: BitViewSized,
     O: BitOrder,
@@ -101,7 +120,12 @@ where
     type Archived = ArchivedBitArray<Archived<A>, O>;
     type Resolver = A::Resolver;
 
-    unsafe fn resolve(&self, pos: usize, resolver: Self::Resolver, out: *mut Self::Archived) {
+    unsafe fn resolve(
+        &self,
+        pos: usize,
+        resolver: Self::Resolver,
+        out: *mut Self::Archived,
+    ) {
         let arr_ref = self.as_raw_slice().try_into().ok().unwrap();
 
         let (fp, fo) = out_field!(out.inner);
@@ -117,7 +141,10 @@ where
     Archived<A>: BitViewSized,
     for<'a> &'a A: TryFrom<&'a [A::Store]>,
 {
-    fn serialize(&self, serializer: &mut S) -> Result<Self::Resolver, <S as Fallible>::Error> {
+    fn serialize(
+        &self,
+        serializer: &mut S,
+    ) -> Result<Self::Resolver, <S as Fallible>::Error> {
         let arr_ref = self.as_raw_slice().try_into().ok().unwrap();
         let resolver = A::serialize(arr_ref, serializer)?;
 
@@ -125,12 +152,15 @@ where
     }
 }
 
-impl<A: BitViewSized + Archive, O: BitOrder, D: Fallible + ?Sized> Deserialize<BitArray<A, O>, D>
-    for ArchivedBitArray<Archived<A>, O>
+impl<A: BitViewSized + Archive, O: BitOrder, D: Fallible + ?Sized>
+    Deserialize<BitArray<A, O>, D> for ArchivedBitArray<Archived<A>, O>
 where
     Archived<A>: Deserialize<A, D> + BitViewSized,
 {
-    fn deserialize(&self, deserializer: &mut D) -> Result<BitArray<A, O>, <D as Fallible>::Error> {
+    fn deserialize(
+        &self,
+        deserializer: &mut D,
+    ) -> Result<BitArray<A, O>, <D as Fallible>::Error> {
         let arr = Archived::<A>::deserialize(&self.inner, deserializer)?;
         Ok(arr.into())
     }
@@ -176,7 +206,8 @@ mod tests {
         let output = unsafe { archived_root::<BitArray>(&buffer[0..end]) };
         assert_eq!(&original[..11], &output[..11]);
 
-        let deserialized: BitArray = output.deserialize(&mut Infallible).unwrap();
+        let deserialized: BitArray =
+            output.deserialize(&mut Infallible).unwrap();
         assert_eq!(&deserialized[..11], &original[..11]);
     }
 }

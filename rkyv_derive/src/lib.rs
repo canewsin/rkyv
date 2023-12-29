@@ -43,6 +43,10 @@ use syn::{parse_macro_input, DeriveInput};
 ///   recursive type definitions. Use `archive = "..."` to specify `Archive` bounds,
 ///   `serialize = "..."` to specify `Serialize` bounds, and `deserialize = "..."` to specify
 ///   `Deserialize` bounds.
+/// - `check_bytes`: Derive `CheckBytes` on the archived type, in order to enable safe
+///   deserialization. Requires `validation` feature. Not compatible with `as = "..."`. In that
+///   case, use `#[derive(CheckBytes)]` on the archived type, and include a `use rkyv::bytecheck`
+///   statement.
 /// - `copy_safe`: States that the archived type is tightly packed with no padding bytes. This
 ///   qualifies it for copy optimizations. (requires nightly)
 /// - `as = "..."`: Instead of generating a separate archived type, this type will archive as the
@@ -69,8 +73,13 @@ use syn::{parse_macro_input, DeriveInput};
 /// reference as if it were a field of the struct. Wrappers can be applied to fields using the
 /// `#[with(...)]` attribute. Multiple wrappers can be used, and they are applied in reverse order
 /// (i.e. `#[with(A, B, C)]` will archive `MyType` as `With<With<With<MyType, C>, B, A>`).
-#[proc_macro_derive(Archive, attributes(archive, archive_attr, omit_bounds, with))]
-pub fn derive_archive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+#[proc_macro_derive(
+    Archive,
+    attributes(archive, archive_attr, omit_bounds, with)
+)]
+pub fn derive_archive(
+    input: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
     let mut derive_input = parse_macro_input!(input as DeriveInput);
     serde::receiver::replace_receiver(&mut derive_input);
 
@@ -85,7 +94,9 @@ pub fn derive_archive(input: proc_macro::TokenStream) -> proc_macro::TokenStream
 /// This macro also supports the `#[archive]`, `#[omit_bounds]`, and `#[with]` attributes. See
 /// [`Archive`] for more information.
 #[proc_macro_derive(Serialize, attributes(archive, omit_bounds, with))]
-pub fn derive_serialize(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+pub fn derive_serialize(
+    input: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
     let mut derive_input = parse_macro_input!(input as DeriveInput);
     serde::receiver::replace_receiver(&mut derive_input);
 
@@ -100,7 +111,9 @@ pub fn derive_serialize(input: proc_macro::TokenStream) -> proc_macro::TokenStre
 /// This macro also supports the `#[archive]`, `#[omit_bounds]`, and `#[with]` attributes. See
 /// [`Archive`] for more information.
 #[proc_macro_derive(Deserialize, attributes(archive, omit_bounds, with))]
-pub fn derive_deserialize(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+pub fn derive_deserialize(
+    input: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
     let mut derive_input = parse_macro_input!(input as DeriveInput);
     serde::receiver::replace_receiver(&mut derive_input);
 

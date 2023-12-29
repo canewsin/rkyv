@@ -1,7 +1,7 @@
 #[cfg(feature = "alloc")]
 mod alloc;
 mod core;
-#[cfg(feature = "rend")]
+mod niche;
 mod rend;
 #[cfg(feature = "std")]
 mod std;
@@ -13,14 +13,20 @@ mod std;
 // implementations should be moved into their respective crates over time. Before adding support for
 // another crate, please consider getting rkyv support in the crate instead.
 
+#[cfg(feature = "arrayvec")]
+mod arrayvec;
 #[cfg(feature = "bitvec")]
 mod bitvec;
+#[cfg(feature = "bytes")]
+mod bytes;
 #[cfg(feature = "hashbrown")]
 mod hashbrown;
 #[cfg(feature = "indexmap")]
 mod indexmap;
 #[cfg(feature = "smallvec")]
 mod smallvec;
+#[cfg(feature = "smol_str")]
+mod smolstr;
 #[cfg(feature = "tinyvec")]
 mod tinyvec;
 #[cfg(feature = "uuid")]

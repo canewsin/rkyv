@@ -1,7 +1,12 @@
 //! Archived bitwise containers.
 
-use crate::{Archived, vec::ArchivedVec};
-use bitvec::{order::{BitOrder, Lsb0}, slice::BitSlice, store::BitStore, view::BitView};
+use crate::{vec::ArchivedVec, Archived};
+use bitvec::{
+    order::{BitOrder, Lsb0},
+    slice::BitSlice,
+    store::BitStore,
+    view::BitView,
+};
 use core::{marker::PhantomData, ops::Deref};
 
 /// An archived `BitVec`.
@@ -10,9 +15,9 @@ use core::{marker::PhantomData, ops::Deref};
 #[cfg_attr(feature = "validation", derive(bytecheck::CheckBytes))]
 #[cfg_attr(feature = "strict", repr(C))]
 #[derive(Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct ArchivedBitVec<T = Archived<usize>, O = Lsb0> {
+pub struct ArchivedBitVec<T = ArchivedUsize, O = Lsb0> {
     pub(crate) inner: ArchivedVec<T>,
-    pub(crate) bit_len: Archived<usize>,
+    pub(crate) bit_len: ArchivedUsize,
     pub(crate) _or: PhantomData<O>,
 }
 
